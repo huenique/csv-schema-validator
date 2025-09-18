@@ -116,11 +116,11 @@ class CSVSchemaValidator:
                 csv_columns = reader.fieldnames or []
                 csv_data = list(reader)
 
-            issues = []
+            issues: List[ValidationIssue] = []
 
             # Check column structure
-            missing_columns = self._check_missing_columns(csv_columns)
-            extra_columns = self._check_extra_columns(csv_columns)
+            missing_columns = self._check_missing_columns(list(csv_columns))
+            extra_columns = self._check_extra_columns(list(csv_columns))
 
             # Add column structure issues
             for col in missing_columns:
@@ -202,11 +202,13 @@ class CSVSchemaValidator:
         self, csv_data: List[Dict[str, Any]]
     ) -> List[ValidationIssue]:
         """Validate the actual data content against schema rules."""
-        issues = []
+        issues: List[ValidationIssue] = []
 
         # Get all column names that exist in both schema and data
-        data_columns = set(csv_data[0].keys()) if csv_data else set()
-        common_columns = data_columns.intersection(set(self.schema_fields.keys()))
+        data_columns: set[str] = set(csv_data[0].keys()) if csv_data else set()
+        common_columns: set[str] = data_columns.intersection(
+            set(self.schema_fields.keys())
+        )
 
         for column_name in common_columns:
             field = self.schema_fields[column_name]
@@ -219,7 +221,7 @@ class CSVSchemaValidator:
         self, column_name: str, column_data: List[str], field: SchemaField
     ) -> List[ValidationIssue]:
         """Validate a single column's data against its field definition."""
-        issues = []
+        issues: List[ValidationIssue] = []
 
         for row_idx, value in enumerate(column_data):
             # Check for required but missing values
@@ -259,7 +261,7 @@ class CSVSchemaValidator:
         self, column_name: str, value: str, field: SchemaField, row_number: int
     ) -> List[ValidationIssue]:
         """Validate a single value against field definition."""
-        issues = []
+        issues: List[ValidationIssue] = []
 
         if value == "" or value.lower() == "null":
             return issues  # Handle null/empty values separately
@@ -503,7 +505,7 @@ class BatchValidator:
             Dict mapping file paths to validation results
         """
         directory_path = Path(directory_path)
-        results = {}
+        results: Dict[str, ValidationResult] = {}
 
         if file_patterns is None:
             file_patterns = {
@@ -539,7 +541,7 @@ class BatchValidator:
         Returns:
             Dict mapping file paths to validation results
         """
-        results = {}
+        results: Dict[str, ValidationResult] = {}
 
         for file_path, schema in file_schema_pairs:
             validator = CSVSchemaValidator(schema)

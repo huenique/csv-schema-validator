@@ -11,11 +11,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from .schemas import LISTING_SCHEMA, SELLER_SCHEMA
+from .schemas import LISTING_SCHEMA, SELLER_SCHEMA, SchemaField
 from .validators import BatchValidator, ValidationResult
 
 
-def get_schema_by_name(schema_name: str):
+def get_schema_by_name(schema_name: str) -> Optional[List[SchemaField]]:
     """Get schema by name."""
     schemas = {
         "seller": SELLER_SCHEMA,
@@ -89,7 +89,7 @@ class SchemaTestRunner:
         )
 
         # Run validation for each schema type
-        all_results = {}
+        all_results: Dict[str, ValidationResult] = {}
         schema_mapping = {
             "seller": SELLER_SCHEMA,
             "listing": LISTING_SCHEMA,
@@ -108,7 +108,7 @@ class SchemaTestRunner:
 
             # Create file-schema pairs for batch validation
             file_schema_pairs = [(file_path, schema) for file_path in files]
-            results = self.batch_validator.validate_files(file_schema_pairs)
+            results = self.batch_validator.validate_files(file_schema_pairs)  # type: ignore
 
             all_results.update(results)
 
@@ -178,6 +178,9 @@ class SchemaTestRunner:
         """
         file_path = Path(file_path)
         schema = get_schema_by_name(schema_type)
+
+        if schema is None:
+            raise ValueError(f"Unknown schema type: {schema_type}")
 
         from .validators import CSVSchemaValidator
 
@@ -273,8 +276,8 @@ class SchemaTestRunner:
         total_files = len(results)
 
         # Count results by status
-        passed_files = []
-        failed_files = []
+        passed_files: List[str] = []
+        failed_files: List[str] = []
 
         total_errors = 0
         total_warnings = 0
@@ -291,9 +294,9 @@ class SchemaTestRunner:
                 failed_files.append(file_path)
 
         # Analyze issues by type
-        issue_types = {}
-        missing_columns_summary = {}
-        extra_columns_summary = {}
+        issue_types: Dict[str, int] = {}
+        missing_columns_summary: Dict[str, int] = {}
+        extra_columns_summary: Dict[str, int] = {}
 
         for result in results.values():
             for issue in result.issues:
@@ -400,7 +403,7 @@ class SchemaTestRunner:
         current_summary = current.get("summary", {})
 
         # Compare key metrics
-        regression_analysis = {
+        regression_analysis: Dict[str, Any] = {
             "files_comparison": {
                 "baseline_total": baseline_summary.get("total_files", 0),
                 "current_total": current_summary.get("total_files", 0),
@@ -451,11 +454,11 @@ class SchemaTestRunner:
                 "issues": [self._make_serializable(issue) for issue in obj.issues],
             }
         elif hasattr(obj, "__dict__"):
-            return {k: self._make_serializable(v) for k, v in obj.__dict__.items()}
+            return {k: self._make_serializable(v) for k, v in obj.__dict__.items()}  # type: ignore
         elif isinstance(obj, dict):
-            return {k: self._make_serializable(v) for k, v in obj.items()}
+            return {k: self._make_serializable(v) for k, v in obj.items()}  # type: ignore
         elif isinstance(obj, (list, tuple)):
-            return [self._make_serializable(item) for item in obj]
+            return [self._make_serializable(item) for item in obj]  # type: ignore
         elif isinstance(obj, datetime):
             return obj.isoformat()
         else:

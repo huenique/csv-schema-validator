@@ -5,14 +5,11 @@ Scraper Integration Helpers
 Helper functions for integrating validation into scraper workflows.
 """
 
-import os
-import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 from ..schemas import LISTING_SCHEMA, SELLER_SCHEMA
-from ..test_runner import SchemaTestRunner
 from ..validators import CSVSchemaValidator
 
 

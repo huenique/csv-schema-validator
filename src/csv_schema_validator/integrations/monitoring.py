@@ -10,24 +10,25 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
-from threading import Timer
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
+
+# Import optional dependencies
+has_requests = False
+has_schedule = False
 
 try:
-    import requests
+    import requests  # type: ignore
 
-    HAS_REQUESTS = True
+    has_requests = True
 except ImportError:
-    requests = None  # type: ignore
-    HAS_REQUESTS = False
+    pass
 
 try:
-    import schedule
+    import schedule  # type: ignore
 
-    HAS_SCHEDULE = True
+    has_schedule = True
 except ImportError:
-    schedule = None
-    HAS_SCHEDULE = False
+    pass
 
 from ..test_runner import SchemaTestRunner
 from ..validators import ValidationResult
@@ -53,10 +54,10 @@ class ValidationMonitor:
 
     def start_monitoring(self) -> None:
         """Start continuous monitoring of CSV files."""
-        if HAS_SCHEDULE:
-            schedule.every(self.monitoring_interval).minutes.do(
+        if has_schedule:
+            schedule.every(self.monitoring_interval).minutes.do(  # type: ignore
                 self._run_validation_check
-            )  # type: ignore
+            )
             self.logger.info(
                 f"Started CSV validation monitoring every {self.monitoring_interval} minutes"
             )
@@ -118,7 +119,7 @@ class ValidationMonitor:
 def send_to_prometheus(validation_results: Dict[str, ValidationResult]) -> None:
     """Send validation metrics to Prometheus."""
     try:
-        if not HAS_REQUESTS:
+        if not has_requests:
             logging.warning("Requests library not available, cannot send to Prometheus")
             return
 
