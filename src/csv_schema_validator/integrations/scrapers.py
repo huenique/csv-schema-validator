@@ -18,80 +18,86 @@ from ..validators import CSVSchemaValidator
 
 class ScraperIntegration:
     """Integration helper for scrapers."""
-    
+
     def __init__(self, base_directory: Union[str, Path]):
         """Initialize scraper integration."""
         self.base_directory = Path(base_directory)
-        
+
     def validate_outputs(self, fail_on_error: bool = True) -> bool:
         """
         Validate all CSV outputs in scraper directory.
-        
+
         Args:
             fail_on_error: Whether to exit with error code on validation failure
-            
+
         Returns:
             True if all validations passed, False otherwise
         """
         print("🔍 Running post-scraper CSV validation...")
-        
+
         # Find CSV files
         seller_csvs = list(self.base_directory.glob("*Seller_rows*.csv"))
         listing_csvs = list(self.base_directory.glob("*Listing_rows*.csv"))
-        
+
         validation_passed = True
-        
+
         # Validate seller CSVs
         for csv_file in seller_csvs:
             print(f"Validating Seller CSV: {csv_file.name}")
             validator = CSVSchemaValidator(SELLER_SCHEMA)
             validator.schema_name = "seller"
             result = validator.validate_file(csv_file)
-            
+
             if result.is_valid:
                 print(f"  ✅ {csv_file.name} passed validation")
             else:
-                print(f"  ❌ {csv_file.name} failed validation ({result.error_count} errors)")
+                print(
+                    f"  ❌ {csv_file.name} failed validation ({result.error_count} errors)"
+                )
                 validation_passed = False
-                
+
                 # Show first few errors
                 for issue in result.issues[:3]:
                     print(f"    - {issue.description}")
-        
-        # Validate listing CSVs  
+
+        # Validate listing CSVs
         for csv_file in listing_csvs:
             print(f"Validating Listing CSV: {csv_file.name}")
             validator = CSVSchemaValidator(LISTING_SCHEMA)
             validator.schema_name = "listing"
             result = validator.validate_file(csv_file)
-            
+
             if result.is_valid:
                 print(f"  ✅ {csv_file.name} passed validation")
             else:
-                print(f"  ❌ {csv_file.name} failed validation ({result.error_count} errors)")
+                print(
+                    f"  ❌ {csv_file.name} failed validation ({result.error_count} errors)"
+                )
                 validation_passed = False
-                
+
                 # Show first few errors
                 for issue in result.issues[:3]:
                     print(f"    - {issue.description}")
-        
+
         if validation_passed:
             print("🎉 All CSV files passed schema validation!")
         else:
             print("💥 Some CSV files failed validation - please review data quality")
-            
+
             if fail_on_error:
                 sys.exit(1)
-        
+
         return validation_passed
-    
-    def create_validation_hook(self, hook_path: Optional[Union[str, Path]] = None) -> Path:
+
+    def create_validation_hook(
+        self, hook_path: Optional[Union[str, Path]] = None
+    ) -> Path:
         """
         Create post-scraper validation hook script.
-        
+
         Args:
             hook_path: Path where to create the hook script
-            
+
         Returns:
             Path to created hook script
         """
@@ -99,7 +105,7 @@ class ScraperIntegration:
             hook_path = self.base_directory / "validate_csv_outputs.sh"
         else:
             hook_path = Path(hook_path)
-        
+
         hook_script = f'''#!/bin/bash
 
 # CSV Schema Validation Hook
@@ -147,31 +153,32 @@ else
     exit 0
 fi
 '''
-        
+
         hook_path.write_text(hook_script)
         hook_path.chmod(0o755)  # Make executable
-        
+
         print(f"📝 Created validation hook: {hook_path}")
         print(f"Usage: {hook_path}")
-        
+
         return hook_path
 
 
-def create_post_scraper_hook(scraper_directory: Union[str, Path], 
-                           hook_name: str = "validate_outputs.py") -> Path:
+def create_post_scraper_hook(
+    scraper_directory: Union[str, Path], hook_name: str = "validate_outputs.py"
+) -> Path:
     """
     Create a Python post-scraper validation hook.
-    
+
     Args:
         scraper_directory: Directory containing the scraper
         hook_name: Name of the hook file
-        
+
     Returns:
         Path to created hook file
     """
     scraper_dir = Path(scraper_directory)
     hook_path = scraper_dir / hook_name
-    
+
     hook_code = f'''#!/usr/bin/env python3
 """
 CSV Schema Validation Hook
@@ -208,57 +215,65 @@ def main():
 if __name__ == "__main__":
     sys.exit(main())
 '''
-    
+
     hook_path.write_text(hook_code)
     hook_path.chmod(0o755)  # Make executable
-    
+
     print(f"📝 Created Python validation hook: {hook_path}")
-    
+
     return hook_path
 
 
-def integrate_with_scraper(scraper_directory: Union[str, Path],
-                          create_hook: bool = True,
-                          update_requirements: bool = True) -> None:
+def integrate_with_scraper(
+    scraper_directory: Union[str, Path],
+    create_hook: bool = True,
+    update_requirements: bool = True,
+) -> None:
     """
     Fully integrate CSV validation with a scraper project.
-    
+
     Args:
         scraper_directory: Path to scraper project
         create_hook: Whether to create validation hook
         update_requirements: Whether to update requirements file
     """
     scraper_dir = Path(scraper_directory)
-    
+
     print(f"🔧 Integrating CSV validation with scraper: {scraper_dir.name}")
-    
+
     # Create integration helper
     integration = ScraperIntegration(scraper_dir)
-    
+
     # Create validation hook
     if create_hook:
         hook_path = integration.create_validation_hook()
         print(f"Created validation hook: {hook_path}")
-    
+
     # Update requirements if requested
     if update_requirements:
         requirements_file = scraper_dir / "requirements.txt"
         pyproject_file = scraper_dir / "pyproject.toml"
-        
+
         if pyproject_file.exists():
             print("📦 Add to your pyproject.toml dependencies:")
-            print('    "csv-schema-validator @ git+https://github.com/huenique/csv-schema-validator.git"')
-            
+            print(
+                '    "csv-schema-validator @ git+https://github.com/huenique/csv-schema-validator.git"'
+            )
+
         elif requirements_file.exists():
             print("📦 Add to your requirements.txt:")
-            print("    csv-schema-validator @ git+https://github.com/huenique/csv-schema-validator.git")
-        
+            print(
+                "    csv-schema-validator @ git+https://github.com/huenique/csv-schema-validator.git"
+            )
+
         else:
             print("📦 Install validation framework:")
-            print("    pip install git+https://github.com/huenique/csv-schema-validator.git")
-    
+            print(
+                "    pip install git+https://github.com/huenique/csv-schema-validator.git"
+            )
+
     print(f"✅ Integration complete for {scraper_dir.name}")
-    
+
     # Show usage instructions
     print("\\n📋 Usage Instructions:")
     print("1. Install csv-schema-validator in your scraper's environment")
@@ -266,5 +281,5 @@ def integrate_with_scraper(scraper_directory: Union[str, Path],
     if create_hook:
         print(f"   ./validate_csv_outputs.sh")
     print("3. Check validation results and fix any issues")
-    
+
     print("\\n🚀 Your scraper now has automated CSV validation!")

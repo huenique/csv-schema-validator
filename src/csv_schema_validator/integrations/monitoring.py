@@ -10,9 +10,24 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
+from threading import Timer
 from typing import Any, Dict, List, Optional
 
-import schedule
+try:
+    import requests
+
+    HAS_REQUESTS = True
+except ImportError:
+    requests = None  # type: ignore
+    HAS_REQUESTS = False
+
+try:
+    import schedule
+
+    HAS_SCHEDULE = True
+except ImportError:
+    schedule = None
+    HAS_SCHEDULE = False
 
 from ..test_runner import SchemaTestRunner
 from ..validators import ValidationResult
@@ -20,149 +35,162 @@ from ..validators import ValidationResult
 
 class ValidationMonitor:
     """Real-time validation monitoring system."""
-    
-    def __init__(self, base_directory: str = "./scrapers", 
-                 monitoring_interval: int = 60):
+
+    def __init__(
+        self, base_directory: str = "./scrapers", monitoring_interval: int = 60
+    ):
         """
         Initialize validation monitor.
-        
+
         Args:
             base_directory: Directory to monitor for CSV files
             monitoring_interval: Check interval in minutes
         """
         self.base_directory = Path(base_directory)
         self.monitoring_interval = monitoring_interval
-        self.runner = SchemaTestRunner()
+        self.runner = SchemaTestRunner(workspace_root=str(self.base_directory))
         self.logger = logging.getLogger(__name__)
-        
-    def start_monitoring(self):
+
+    def start_monitoring(self) -> None:
         """Start continuous monitoring of CSV files."""
-        schedule.every(self.monitoring_interval).minutes.do(self._run_validation_check)
-        
-        self.logger.info(f"Started CSV validation monitoring every {self.monitoring_interval} minutes")
-        
-        while True:
-            schedule.run_pending()
-            time.sleep(60)
-    
-    def _run_validation_check(self):
-        """Run validation check and send alerts if needed."""
+        if HAS_SCHEDULE:
+            schedule.every(self.monitoring_interval).minutes.do(
+                self._run_validation_check
+            )  # type: ignore
+            self.logger.info(
+                f"Started CSV validation monitoring every {self.monitoring_interval} minutes"
+            )
+            while True:
+                schedule.run_pending()  # type: ignore
+                time.sleep(60)
+        else:
+            self.logger.warning(
+                "Schedule library not available, running validation once"
+            )
+            self._run_validation_check()
+
+    def _run_validation_check(self) -> None:
+        """Run validation check on all CSV files."""
         try:
-            results = self.runner.discover_and_validate(str(self.base_directory))
-            
+            results = self.runner.run_full_validation()
+
             for file_path, result in results.items():
                 if not result.is_valid:
                     self._send_alert(file_path, result)
                     self._log_validation_failure(result)
                 else:
                     self._log_validation_success(result)
-                    
         except Exception as e:
             self.logger.error(f"Error during validation check: {e}")
-    
-    def _send_alert(self, file_path: str, result: ValidationResult):
+
+    def _send_alert(self, file_path: str, result: ValidationResult) -> None:
         """Send alert for validation failure."""
-        alert_data = {
+        alert_data: Dict[str, Any] = {
             "timestamp": datetime.now().isoformat(),
             "file_path": file_path,
-            "schema_type": result.schema_name,
+            "validation_issues": [issue.__dict__ for issue in result.issues],
             "error_count": result.error_count,
             "warning_count": result.warning_count,
-            "issues": [
-                {
-                    "field": issue.field_name,
-                    "type": issue.issue_type,
-                    "severity": issue.severity,
-                    "description": issue.description,
-                    "row": issue.row_number
-                }
-                for issue in result.issues[:5]  # First 5 issues
-            ]
+            "total_rows": result.total_rows,
         }
-        
-        self.logger.warning(f"CSV validation failed: {json.dumps(alert_data, indent=2)}")
-        
+
+        self.logger.warning(f"Validation failure alert: {json.dumps(alert_data)}")
+
         # Send to external monitoring systems
         send_to_prometheus({"file_path": result})
         send_to_datadog({"file_path": result})
-    
-    def _log_validation_success(self, result: ValidationResult):
+
+    def _log_validation_success(self, result: ValidationResult) -> None:
         """Log successful validation."""
-        self.logger.info(f"CSV validation passed: {result.file_path} "
-                        f"({result.total_rows} rows, {result.total_columns} columns)")
-    
-    def _log_validation_failure(self, result: ValidationResult):
-        """Log validation failure."""
-        self.logger.error(f"CSV validation failed: {result.file_path} "
-                         f"- {result.error_count} errors, {result.warning_count} warnings")
+        self.logger.info(
+            f"CSV validation passed: {result.file_path} "
+            f"({result.total_rows} rows, {result.total_columns} columns)"
+        )
+
+    def _log_validation_failure(self, result: ValidationResult) -> None:
+        """Log validation failure with details."""
+        self.logger.error(
+            f"CSV validation failed: {result.file_path} "
+            f"- {result.error_count} errors, {result.warning_count} warnings"
+        )
 
 
-def send_to_prometheus(validation_results: Dict[str, ValidationResult]):
+def send_to_prometheus(validation_results: Dict[str, ValidationResult]) -> None:
     """Send validation metrics to Prometheus."""
     try:
+        if not HAS_REQUESTS:
+            logging.warning("Requests library not available, cannot send to Prometheus")
+            return
+
         import requests
-        
-        metrics = []
-        
+
+        metrics: List[Dict[str, Any]] = []
+
         for file_path, result in validation_results.items():
-            metrics.append({
-                'metric': 'csv_validation_status',
-                'value': 1 if result.is_valid else 0,
-                'labels': {
-                    'file_path': file_path,
-                    'schema_type': result.schema_name,
-                    'error_count': str(result.error_count)
+            metric_entry: Dict[str, Any] = {
+                "metric": "csv_validation_status",
+                "value": 1 if result.is_valid else 0,
+                "labels": {
+                    "file_path": file_path,
+                    "schema_type": result.schema_name,
+                    "error_count": str(result.error_count),
                 },
-                'timestamp': datetime.now().isoformat()
-            })
-            
-            metrics.append({
-                'metric': 'csv_validation_errors',
-                'value': result.error_count,
-                'labels': {
-                    'file_path': file_path,
-                    'schema_type': result.schema_name
+                "timestamp": datetime.now().isoformat(),
+            }
+            metrics.append(metric_entry)
+
+            error_metric: Dict[str, Any] = {
+                "metric": "csv_validation_errors",
+                "value": result.error_count,
+                "labels": {
+                    "file_path": file_path,
+                    "schema_type": result.schema_name,
                 },
-                'timestamp': datetime.now().isoformat()
-            })
-        
+                "timestamp": datetime.now().isoformat(),
+            }
+            metrics.append(error_metric)
+
         # Send to Prometheus pushgateway (if available)
         prometheus_url = "http://pushgateway:9091/metrics"
         response = requests.post(prometheus_url, json=metrics, timeout=10)
-        
+
         if response.status_code == 200:
             logging.info("Successfully sent metrics to Prometheus")
         else:
-            logging.warning(f"Failed to send metrics to Prometheus: {response.status_code}")
-            
+            logging.warning(
+                f"Failed to send metrics to Prometheus: {response.status_code}"
+            )
+
     except ImportError:
         logging.warning("requests not available - skipping Prometheus integration")
     except Exception as e:
         logging.error(f"Error sending metrics to Prometheus: {e}")
 
 
-def send_to_datadog(validation_results: Dict[str, ValidationResult]):
+def send_to_datadog(validation_results: Dict[str, ValidationResult]) -> None:
     """Send validation metrics to DataDog."""
     try:
         # Mock DataDog integration - replace with actual DataDog client
         for file_path, result in validation_results.items():
-            # statsd.gauge('csv.validation.status', 
+            # statsd.gauge('csv.validation.status',
             #             1 if result.is_valid else 0,
             #             tags=[f'file:{file_path}', f'schema:{result.schema_name}'])
-            
-            # statsd.gauge('csv.validation.errors', 
+
+            # statsd.gauge('csv.validation.errors',
             #             result.error_count,
             #             tags=[f'file:{file_path}', f'schema:{result.schema_name}'])
-            
-            logging.info(f"DataDog metrics: csv.validation.status={1 if result.is_valid else 0}, "
-                        f"csv.validation.errors={result.error_count} "
-                        f"[file:{file_path}, schema:{result.schema_name}]")
-                        
+
+            logging.info(
+                f"DataDog metrics: csv.validation.status={1 if result.is_valid else 0}, "
+                f"csv.validation.errors={result.error_count} "
+                f"[file:{file_path}, schema:{result.schema_name}]"
+            )
+
     except Exception as e:
         logging.error(f"Error sending metrics to DataDog: {e}")
 
 
-def create_monitoring_dashboard():
+def create_monitoring_dashboard() -> str:
     """Create a simple monitoring dashboard."""
     dashboard_html = """
     <!DOCTYPE html>
@@ -214,5 +242,5 @@ def create_monitoring_dashboard():
     </body>
     </html>
     """
-    
+
     return dashboard_html
